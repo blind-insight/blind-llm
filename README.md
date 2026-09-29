@@ -113,4 +113,4 @@ This package was extracted from the Blind Insight server. See [`PROVENANCE.md`](
 
 ## License
 
-Apache-2.0.
+MIT.

@@ -3,7 +3,7 @@ name = "blindllm"
 version = "0.1.0"
 description = "Open-source model instructions for asking questions of encrypted data: system prompt, tool contract, and OpenAI / Anthropic / Gemini adapters."
 readme = "README.md"
-license = "Apache-2.0"
+license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "Blind Insight", email = "hello@blindinsight.com" }]
@@ -11,7 +11,7 @@ keywords = ["llm", "encryption", "privacy", "ai-agents", "openai", "anthropic", 
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: Apache Software License",
+  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Topic :: Security :: Cryptography",
 ]
