@@ -1,0 +1,48 @@
+[project]
+name = "blindllm"
+version = "0.1.0"
+description = "Open-source model instructions for asking questions of encrypted data: system prompt, tool contract, and OpenAI / Anthropic / Gemini adapters."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Blind Insight", email = "hello@blindinsight.com" }]
+keywords = ["llm", "encryption", "privacy", "ai-agents", "openai", "anthropic", "gemini"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security :: Cryptography",
+]
+dependencies = []
+
+[project.optional-dependencies]
+openai = ["openai>=1.40.0,<4"]
+anthropic = ["anthropic>=0.39.0,<2"]
+gemini = ["google-genai>=1.0.0,<3"]
+all = ["blindllm[openai,anthropic,gemini]"]
+
+[project.urls]
+Homepage = "https://blindinsight.com"
+Documentation = "https://docs.blindinsight.io"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6", "pre-commit>=3.7"]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blindllm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# Same rules as the Blind Insight server, so the copied modules stay byte-close to it.
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+extend-select = ["I"]
