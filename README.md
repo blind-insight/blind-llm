@@ -27,16 +27,24 @@ pip install -e ".[anthropic]"     # or [openai], [gemini], [all]  (PyPI release 
 ```python
 from blindllm import build_provider, validate_model_output
 
-catalog = [{"dataset": "fraud-data", "schema": "train", "label": "Fraud account records"}]
+catalog = [
+    {"dataset": "fraud-data", "schema": "train", "label": "Fraud account records"}
+]
 client = build_provider("anthropic", api_key="...", catalog=catalog)
 
-messages = client.build_initial_messages("Average risk for German accounts in 2024?", {})
-reply = client.chat_turn(messages)      # {'response_type': 'tool_call', 'tool_name': 'describe_schema', ...}
-validate_model_output(reply)            # raises if the model broke the contract
+messages = client.build_initial_messages(
+    "Average risk for German accounts in 2024?", {}
+)
+reply = client.chat_turn(
+    messages
+)  # {'response_type': 'tool_call', 'tool_name': 'describe_schema', ...}
+validate_model_output(reply)  # raises if the model broke the contract
 
 # run the tool yourself, then feed the result back:
-messages = client.append_tool_result(messages, reply, reply["tool_name"], reply["tool_args"], tool_result)
-reply = client.chat_turn(messages)      # ... until response_type == "final_answer"
+messages = client.append_tool_result(
+    messages, reply, reply["tool_name"], reply["tool_args"], tool_result
+)
+reply = client.chat_turn(messages)  # ... until response_type == "final_answer"
 ```
 
 `python examples/quickstart.py` prints exactly what the model receives. Add `--live` to ask a real model.

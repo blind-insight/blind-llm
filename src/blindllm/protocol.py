@@ -55,7 +55,7 @@ class OpenAIAdapter:
     ) -> dict[str, Any]:
         payload = self.client.chat_turn(messages, provider_user_id=provider_user_id)
         if not isinstance(payload, dict):
-            raise ValueError("chat client adapter expected a dict response payload")
+            raise TypeError("chat client adapter expected a dict response payload")
         return payload
 
     def append_tool_result(

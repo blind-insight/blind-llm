@@ -34,8 +34,7 @@ class ProviderCallError(RuntimeError):
             ProviderErrorInfo(
                 type="provider_timeout",
                 message=(
-                    f"{label} took too long to respond. "
-                    "Please try again in a moment."
+                    f"{label} took too long to respond. Please try again in a moment."
                 ),
             ),
         )
@@ -45,8 +44,7 @@ def _user_message(provider: str, err_type: str) -> str:
     label = provider.title()
     messages = {
         "provider_auth": (
-            f"{label} rejected the request. "
-            "Server logs contain the provider response."
+            f"{label} rejected the request. Server logs contain the provider response."
         ),
         "provider_rate_limit": (
             f"{label} rate limit reached. Please wait and try again."

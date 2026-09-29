@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-_AGG_RE = re.compile(r"^(?P<op>count|avg|sum|min|max)\((?P<arg>.+)\)$", re.I)
+_AGG_RE = re.compile(r"^(?P<op>count|avg|sum|min|max)\((?P<arg>.+)\)$", re.IGNORECASE)
 _COUNT_ONLY_FIELD = "records"
 
 
@@ -86,9 +86,7 @@ def needs_or_average_followup(prompt: str, payloads: dict[str, Any]) -> bool:
     if not prompt_requests_or_average(prompt):
         return False
     summary = summarize_computed_aggregates(payloads)
-    if summary and summary.get("weighted_averages"):
-        return False
-    return True
+    return not (summary and summary.get("weighted_averages"))
 
 
 def needs_avg_combo_followup(prompt: str, payloads: dict[str, Any]) -> bool:
