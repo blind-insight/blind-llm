@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from blindllm.filters import FILTER_OPS
+
 ALLOWED_TOOL_NAMES: set[str] = {
     "list_schemas",
     "describe_schema",
@@ -33,9 +35,21 @@ OPENAI_STRUCTURED_OUTPUT_SCHEMA: dict[str, Any] = {
             "properties": {
                 "dataset": {"type": ["string", "null"]},
                 "schema": {"type": ["string", "null"]},
-                "filter": {"type": ["string", "null"]},
+                "filters": {
+                    "type": ["array", "null"],
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "field": {"type": "string"},
+                            "op": {"type": "string", "enum": sorted(FILTER_OPS)},
+                            "value": {"type": "string"},
+                        },
+                        "required": ["field", "op", "value"],
+                        "additionalProperties": False,
+                    },
+                },
             },
-            "required": ["dataset", "schema", "filter"],
+            "required": ["dataset", "schema", "filters"],
             "additionalProperties": False,
         },
         "narrative": {"type": ["string", "null"]},

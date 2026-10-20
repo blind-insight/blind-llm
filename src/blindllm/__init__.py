@@ -7,6 +7,14 @@ numbers; records stay encrypted behind the Blind Insight proxy.
 
 from blindllm.contracts import ALLOWED_TOOL_NAMES, OPENAI_STRUCTURED_OUTPUT_SCHEMA
 from blindllm.errors import ProviderCallError, classify_provider_exception
+from blindllm.filters import (
+    FilterClause,
+    FilterValidationError,
+    PhraseValidationError,
+    explain_filters,
+    filters_to_wire,
+    parse_filters,
+)
 from blindllm.prompts import SYSTEM_PROMPT, append_tool_result, build_initial_messages
 from blindllm.protocol import ChatClientProtocol, FakeClient
 from blindllm.providers import SUPPORTED_PROVIDERS, build_provider, normalize_provider
@@ -19,12 +27,18 @@ __all__ = [
     "SYSTEM_PROMPT",
     "ChatClientProtocol",
     "FakeClient",
+    "FilterClause",
+    "FilterValidationError",
+    "PhraseValidationError",
     "ProviderCallError",
     "append_tool_result",
     "build_initial_messages",
     "build_provider",
     "classify_provider_exception",
+    "explain_filters",
+    "filters_to_wire",
     "normalize_provider",
+    "parse_filters",
     "validate_model_output",
 ]
 __version__ = "0.1.0"

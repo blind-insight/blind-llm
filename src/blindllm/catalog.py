@@ -182,4 +182,121 @@ MOCK_CATALOG: list[dict[str, Any]] = [
         ],
         "ml_models": DEFAULT_ML_MODELS,
     },
+    {
+        # Synthetic encounters with free text: `text: true` fields take phrase
+        # search, plain strings take equality. Mirrors the EHR demo's
+        # `ehr-data-v3` schema.
+        "dataset": "population-health",
+        "schema": "ehr-data-v3",
+        "label": "EHR encounter records",
+        "keywords": [
+            "health",
+            "hospital",
+            "ehr",
+            "emr",
+            "encounter",
+            "visit",
+            "admission",
+            "department",
+            "procedure",
+            "scan",
+            "imaging",
+            "diagnosis",
+            "readmission",
+            "clinical note",
+            "symptom",
+        ],
+        "description": (
+            "Hospital encounters: department, procedures, diagnoses, cost, "
+            "length of stay, 30-day readmission, and a free-text clinical "
+            "note. Symptoms and imaging phrasing appear only in the note."
+        ),
+        "count_vehicle": {"field": "patient_id", "range": "100001~139385"},
+        "fields": [
+            {
+                "name": "patient_id",
+                "type": "int",
+                "indexed": True,
+                "range": "100001-139385",
+                "purpose": "count vehicle; stable across a patient's visits",
+            },
+            {"name": "year", "type": "int", "indexed": True, "range": "2022-2026"},
+            {"name": "month", "type": "int", "indexed": True, "range": "1-12"},
+            {"name": "day", "type": "int", "indexed": True, "range": "1-31"},
+            {"name": "age", "type": "int", "indexed": True, "range": "18-94"},
+            {
+                "name": "sex",
+                "type": "string",
+                "indexed": True,
+                "values": ["female", "male"],
+            },
+            {
+                "name": "department",
+                "type": "string",
+                "indexed": True,
+                "values": [
+                    "cardiology",
+                    "emergency",
+                    "infectious disease",
+                    "oncology",
+                    "orthopedics",
+                    "primary care",
+                    "pulmonology",
+                    "radiology",
+                ],
+                "purpose": "ER / ED / emergency room → emergency",
+            },
+            {
+                "name": "procedure",
+                "type": "string",
+                "text": True,
+                "indexed": True,
+                "purpose": (
+                    "comma-separated procedures ordered, e.g. 'MRI brain', "
+                    "'CT chest', 'ECG', 'complete blood count'"
+                ),
+            },
+            {
+                "name": "diagnosis",
+                "type": "string",
+                "text": True,
+                "indexed": True,
+                "purpose": (
+                    "comma-separated diagnoses, e.g. 'urinary tract infection', "
+                    "'acute myocardial infarction', 'Lyme disease'"
+                ),
+            },
+            {
+                "name": "billed_amount",
+                "type": "int",
+                "indexed": True,
+                "range": "0-39973",
+                "purpose": "encounter cost in whole dollars",
+            },
+            {
+                "name": "length_of_stay_days",
+                "type": "int",
+                "indexed": True,
+                "range": "0-8",
+            },
+            {
+                "name": "readmitted_30d",
+                "type": "int",
+                "indexed": True,
+                "range": "0-1",
+                "purpose": "1 if readmitted within 30 days",
+            },
+            {
+                "name": "note",
+                "type": "string",
+                "text": True,
+                "indexed": True,
+                "purpose": (
+                    "free-text clinical note: chief complaint, symptoms, "
+                    "findings, disposition"
+                ),
+            },
+        ],
+        "ml_models": DEFAULT_ML_MODELS,
+    },
 ]

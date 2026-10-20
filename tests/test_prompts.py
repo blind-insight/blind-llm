@@ -91,7 +91,7 @@ class TestBuildInitialMessages:
 
     def test_time_ranges_document_relative_windows(self):
         assert "the past 3 months" in SYSTEM_PROMPT
-        assert "visit_month:202605~202607" in SYSTEM_PROMPT
+        assert "range `202605~202607`" in SYSTEM_PROMPT
 
     def test_user_message_is_last(self):
         msgs = build_initial_messages("the prompt", {}, [], [])
@@ -127,7 +127,7 @@ class TestAppendToolResult:
             messages,
             assistant_output={"response_type": "tool_call"},
             tool_name="list_schemas",
-            tool_args={"dataset": None, "schema": None, "filter": None},
+            tool_args={"dataset": None, "schema": None, "filters": None},
             tool_result={"schemas": []},
         )
         assert len(out) == 2
@@ -140,11 +140,15 @@ class TestAppendToolResult:
             messages,
             assistant_output={},
             tool_name="query_aggregate",
-            tool_args={"dataset": "x", "schema": "y", "filter": "z:1"},
+            tool_args={
+                "dataset": "x",
+                "schema": "y",
+                "filters": [{"field": "z", "op": "eq", "value": "1"}],
+            },
             tool_result={"value": 5},
         )
         assert "query_aggregate" in messages[1]["content"]
-        assert "z:1" in messages[1]["content"]
+        assert '"field": "z"' in messages[1]["content"]
         assert "5" in messages[1]["content"]
 
     def test_mutates_in_place_and_returns_same_list(self):
@@ -167,28 +171,29 @@ class TestLanguageNormalization:
 
     def test_time_range_synonyms_map_to_year_range_clause(self):
         prompt = SYSTEM_PROMPT.lower()
-        assert "year:2022~2024" in prompt
+        assert '{"field":"year","op":"range","value":"2022~2024"}' in prompt
         assert "from 2022 to 2024" in prompt
         assert "between 2022 and 2024" in prompt
         assert "through 2024" in prompt
         assert "thru 2024" in prompt
 
-    def test_aggregate_synonyms_map_to_direct_avg(self):
+    def test_average_synonyms_map_to_sum_over_count(self):
         prompt = SYSTEM_PROMPT.lower()
         assert "mean" in prompt
         assert "typical" in prompt
-        assert "never sum÷count" in prompt or "never derive an average" in prompt
+        assert "then sum ÷ count. never `avg`: it rounds." in prompt
 
     def test_count_synonyms_map_to_count_semantics(self):
         prompt = SYSTEM_PROMPT.lower()
         assert "total number" in prompt
         assert "how many" in prompt
 
-    def test_combo_filter_example_includes_year_range_and_avg(self):
-        assert "year:2022~2024,risk_level:avg(0~100)" in SYSTEM_PROMPT
-        assert "year:2022~2024,account_jurisdiction:us,risk_level:avg(0~100)" in (
-            SYSTEM_PROMPT.lower()
+    def test_combo_filter_example_includes_year_range_and_aggregate(self):
+        assert (
+            "range year 2022~2024 + eq account_jurisdiction US + max risk_level 0~100"
+            in SYSTEM_PROMPT
         )
+        assert "An average in a combo question is still a sum query" in SYSTEM_PROMPT
         assert (
             "never invent `train`" in SYSTEM_PROMPT.lower()
             or "fraud-train" in SYSTEM_PROMPT
@@ -203,11 +208,56 @@ class TestLanguageNormalization:
     def test_or_language_keeps_separate_serial_queries(self):
         prompt = SYSTEM_PROMPT.lower()
         assert "separate serial" in prompt
-        assert "never encode or inside one filter" in prompt
+        assert "never encode or inside one clause" in prompt
 
     def test_follow_up_drill_down_keeps_prior_filters(self):
         prompt = SYSTEM_PROMPT.lower()
         assert "follow-up / drill-down scope" in prompt
         assert "of those" in prompt
-        assert "account_jurisdiction:fr" in prompt
+        assert "eq account_jurisdiction fr" in prompt
         assert "must be <=" in prompt
+
+
+class TestPhraseSearch:
+    """SYSTEM_PROMPT must teach phrase clauses on `text: true` fields."""
+
+    def test_documents_phrase_op_and_text_fields(self):
+        assert "FREE-TEXT / PHRASE SEARCH" in SYSTEM_PROMPT
+        assert '"op":"phrase"' in SYSTEM_PROMPT
+        assert "`text: true`" in SYSTEM_PROMPT
+
+    def test_documents_matching_semantics(self):
+        prompt = SYSTEM_PROMPT.lower()
+        assert "consecutively and in order" in prompt
+        assert "no stemming" in prompt
+        assert "matches negated mentions" in prompt
+
+    def test_teaches_record_wording_over_user_wording(self):
+        assert "phrase `MRI` on the procedure field" in SYSTEM_PROMPT
+
+    def test_phrase_counts_use_the_count_vehicle(self):
+        assert "Phrase-scoped counts" in SYSTEM_PROMPT
+
+    def test_citations_carry_a_plain_language_query_line(self):
+        assert 'procedure contains "MRI"' in SYSTEM_PROMPT
+
+
+class TestAverages:
+    """Averages and rates are sum ÷ count; the proxy's avg rounds."""
+
+    def test_prompt_forbids_avg_and_explains_why(self):
+        assert "AVERAGES AND RATES — always sum ÷ count, never `avg`" in SYSTEM_PROMPT
+        assert "rounds it to a whole" in SYSTEM_PROMPT
+
+    def test_average_example_is_a_sum_and_a_count_with_identical_clauses(self):
+        assert '{"field":"billed_amount","op":"sum","value":"0~39973"}' in SYSTEM_PROMPT
+        assert "IDENTICAL eq / range / phrase clauses" in SYSTEM_PROMPT
+
+    def test_rates_of_flags_use_the_same_pattern(self):
+        assert "sum of `readmitted_30d` (range 0~1) ÷ count" in SYSTEM_PROMPT
+
+    def test_no_example_uses_the_avg_op(self):
+        assert '"op":"avg"' not in SYSTEM_PROMPT
+
+    def test_query_budget_leaves_room_for_two_queries_per_average(self):
+        assert "≤ 20" in SYSTEM_PROMPT

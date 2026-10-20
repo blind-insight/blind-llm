@@ -7,6 +7,7 @@ data is touched either way:
 
     python examples/quickstart.py "average risk for German accounts in 2024?"
     ANTHROPIC_API_KEY=... python examples/quickstart.py --live --provider anthropic "..."
+    GOOGLE_API_KEY= python examples/quickstart.py --live --provider gemini
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from blindllm import (
     FakeClient,
     ProviderCallError,
     build_provider,
+    explain_filters,
+    parse_filters,
     validate_model_output,
 )
 from blindllm.catalog import MOCK_CATALOG
@@ -36,7 +39,9 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
     p.add_argument(
-        "question", nargs="?", default="What is the average risk level in 2024?"
+        "question",
+        nargs="?",
+        default="How many MRI scans did the ER department order in March 2025?",
     )
     p.add_argument("--provider", default="openai", choices=sorted(KEY_ENV))
     p.add_argument("--live", action="store_true", help="call the real provider")
@@ -46,7 +51,7 @@ def main() -> None:
         {
             k: v
             for k, v in e.items()
-            if k in ("dataset", "schema", "label", "description")
+            if k in ("dataset", "schema", "label", "description", "fields")
         }
         for e in MOCK_CATALOG
     ]
@@ -59,11 +64,30 @@ def main() -> None:
         messages = client.build_initial_messages(args.question, {})
     else:
         messages = build_initial_messages(args.question, {}, catalog, [])
+        # What a model should send for the default question: a phrase clause on
+        # the free-text procedure field, scoped by equality, counted on the
+        # schema's count vehicle.
         client = FakeClient(
             {
                 "response_type": "tool_call",
-                "tool_name": "list_schemas",
-                "tool_args": {},
+                "tool_name": "query_aggregate",
+                "tool_args": {
+                    "dataset": "population-health",
+                    "schema": "ehr-data-v3",
+                    "filters": [
+                        {"field": "procedure", "op": "phrase", "value": "MRI"},
+                        {"field": "department", "op": "eq", "value": "emergency"},
+                        {"field": "year", "op": "eq", "value": "2025"},
+                        {"field": "month", "op": "eq", "value": "3"},
+                        {
+                            "field": "patient_id",
+                            "op": "count",
+                            "value": "100001~139385",
+                        },
+                    ],
+                },
+                "narrative": None,
+                "citations": None,
             }
         )
         print("(scripted reply; pass --live to ask a real model)\n")
@@ -79,8 +103,13 @@ def main() -> None:
         raise SystemExit(f"{exc.provider}: {exc.info.type}: {exc}") from exc
     print("=== model reply ===")
     print(json.dumps(reply, indent=2))
-    validate_model_output(reply)  # raises ValueError if the reply breaks the contract
+    # Raises ValueError if the reply breaks the contract or names a field/op the
+    # catalog's schema does not support.
+    validate_model_output(reply, catalog=catalog)
     print("\n=== validation: reply matches the output contract ===")
+    if reply.get("tool_name") == "query_aggregate":
+        clauses = parse_filters(reply["tool_args"]["filters"])
+        print(f"\n=== what will be asked ===\n{explain_filters(clauses)}")
 
 
 if __name__ == "__main__":

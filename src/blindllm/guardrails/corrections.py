@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from blindllm.filters import PHRASE, parse_filters
+
 _AGG_RE = re.compile(r"^(?P<op>count|avg|sum|min|max)\((?P<arg>.+)\)$", re.IGNORECASE)
 _COUNT_ONLY_FIELD = "records"
 
@@ -26,19 +28,29 @@ def summarize_computed_aggregates(
 ) -> dict[str, list[dict[str, Any]]] | None:
     """Compute safe summaries from completed aggregate tool payloads.
 
-    This is intentionally conservative: pooled averages require count+avg for
-    at least two matching branches, and OR-count totals require branches that
-    differ by exactly one equality field with otherwise identical filters.
+    Averages are always sum ÷ count, never the proxy's rounded ``avg``: each
+    branch (one set of non-aggregate filters) with both a ``sum`` and a
+    ``count`` gets an exact average, and two or more such branches on the same
+    field pool into a weighted average, Σsum ÷ Σcount. OR-count totals require
+    branches that differ by exactly one equality field with otherwise
+    identical filters.
+
+    Pairing assumes the sum and the count each run over their field's full
+    declared range, as the system prompt requires; a narrower bound is itself
+    a filter and would make the pair disagree.
     """
     aggregates = [
         parsed
         for payload in payloads.values()
         if (parsed := _parse_payload(payload)) is not None
     ]
-    weighted_averages = _weighted_averages(aggregates)
+    averages = _averages(aggregates)
+    weighted_averages = _weighted_averages(averages)
     or_counts = _or_count_totals(aggregates)
 
     summary: dict[str, list[dict[str, Any]]] = {}
+    if averages:
+        summary["averages"] = averages
     if weighted_averages:
         summary["weighted_averages"] = weighted_averages
     if or_counts:
@@ -60,9 +72,10 @@ def build_or_average_correction_message() -> str:
     """Prompt the model to finish OR-average child queries before answering."""
     return (
         "Your final answer arrived before the OR-average could be computed. "
-        "Run separate serial query_aggregate calls for each OR branch: one count "
-        "and one avg per branch on the same numeric field, then provide "
-        "final_answer using the server-computed weighted average."
+        "Run separate serial query_aggregate calls for each OR branch: one sum "
+        "of the numeric field and one count per branch, with identical "
+        "clauses, then provide final_answer using the server-computed "
+        "weighted average."
     )
 
 
@@ -89,12 +102,13 @@ def needs_or_average_followup(prompt: str, payloads: dict[str, Any]) -> bool:
     return not (summary and summary.get("weighted_averages"))
 
 
-def needs_avg_combo_followup(prompt: str, payloads: dict[str, Any]) -> bool:
-    """True when the prompt asks for an average but no `avg` aggregate ran.
+def needs_sum_count_followup(prompt: str, payloads: dict[str, Any]) -> bool:
+    """True when an average is being built from ``avg`` or from an unpaired sum.
 
-    Blocks sum÷count-derived averages: if the model only queried sum and/or
-    count, the deterministic correction tells it to re-query with a single
-    combo filter that applies `avg` directly (one proxy query).
+    The proxy's ``avg`` rounds to a whole number, so averages must be sum ÷
+    count. This flags a run that used ``avg``, or that queried a ``sum`` with
+    no ``count`` carrying the same clauses, so the correction can send the
+    model back for the missing query.
     """
     if not prompt_requests_average(prompt):
         return False
@@ -103,21 +117,23 @@ def needs_avg_combo_followup(prompt: str, payloads: dict[str, Any]) -> bool:
         for payload in payloads.values()
         if (parsed := _parse_payload(payload)) is not None
     ]
-    if not aggregates:
-        return False
     if any(aggregate.op == "avg" for aggregate in aggregates):
-        return False
-    return any(aggregate.op in {"sum", "count"} for aggregate in aggregates)
+        return True
+    counted = {(a.dataset, a.schema, a.filters) for a in aggregates if a.op == "count"}
+    return any(
+        a.op == "sum" and (a.dataset, a.schema, a.filters) not in counted
+        for a in aggregates
+    )
 
 
-def build_avg_combo_correction_message() -> str:
-    """Prompt the model to use a direct avg combo filter, not sum÷count."""
+def build_sum_count_correction_message() -> str:
+    """Prompt the model to compute an average as sum ÷ count, never avg."""
     return (
-        "Do not derive an average by dividing a sum by a count. Re-query "
-        "with a single combo filter that applies avg directly to the "
-        "numeric field, scoped by the other clauses (for example "
-        "`year:2021~2025,risk_level:avg(0~100)`), then provide final_answer "
-        "using the returned value."
+        "Do not use avg: the proxy rounds it to a whole number. For each "
+        "average, run two query_aggregate calls with identical clauses: a sum "
+        "of the numeric field over its full declared range, and a count on "
+        "the schema's count_vehicle over its full range. Then provide "
+        "final_answer using sum ÷ count."
     )
 
 
@@ -125,6 +141,38 @@ def _parse_payload(payload: Any) -> ParsedAggregate | None:
     if parsed := _parse_aggregate_payload(payload):
         return parsed
     return _parse_count_only_payload(payload)
+
+
+def _payload_clauses(payload: dict[str, Any]) -> list[tuple[str, str]] | None:
+    """``(field, value)`` pairs from a payload's structured ``filters`` or legacy ``filter``.
+
+    Aggregates render as ``op(bounds)`` so ``_AGG_RE`` recognizes them, and
+    phrases are quoted so a phrase never collides with an equal-valued eq clause.
+    """
+    structured = payload.get("filters")
+    if isinstance(structured, list):
+        try:
+            parsed = parse_filters(structured)
+        except ValueError:
+            return None
+        return [
+            (c.field, f'"{c.value}"' if c.op == PHRASE else c.to_wire()["value"])
+            for c in parsed
+        ]
+
+    legacy = payload.get("filter")
+    if not isinstance(legacy, str):
+        return None
+    clauses: list[tuple[str, str]] = []
+    for clause in legacy.split(","):
+        clause = clause.strip()
+        if not clause:
+            continue
+        if ":" not in clause:
+            return None
+        field, raw_value = (part.strip() for part in clause.split(":", 1))
+        clauses.append((field, raw_value))
+    return clauses
 
 
 def _parse_aggregate_payload(payload: Any) -> ParsedAggregate | None:
@@ -135,8 +183,8 @@ def _parse_aggregate_payload(payload: Any) -> ParsedAggregate | None:
     if payload.get("query_mode") != "aggregate":
         return None
 
-    agg_filter = payload.get("filter")
-    if not isinstance(agg_filter, str):
+    clauses = _payload_clauses(payload)
+    if clauses is None:
         return None
     dataset = payload.get("dataset")
     schema = payload.get("schema")
@@ -147,14 +195,10 @@ def _parse_aggregate_payload(payload: Any) -> ParsedAggregate | None:
     if not isinstance(value, (int, float)):
         return None
 
-    clauses = [clause.strip() for clause in agg_filter.split(",") if clause.strip()]
     aggregate_clause: tuple[str, str] | None = None
     filters: list[str] = []
 
-    for clause in clauses:
-        if ":" not in clause:
-            return None
-        field, raw_value = (part.strip() for part in clause.split(":", 1))
+    for field, raw_value in clauses:
         match = _AGG_RE.match(raw_value)
         if match:
             if aggregate_clause is not None:
@@ -185,8 +229,8 @@ def _parse_count_only_payload(payload: Any) -> ParsedAggregate | None:
     if payload.get("query_mode") != "count_only":
         return None
 
-    agg_filter = payload.get("filter")
-    if not isinstance(agg_filter, str):
+    clauses = _payload_clauses(payload)
+    if clauses is None:
         return None
     dataset = payload.get("dataset")
     schema = payload.get("schema")
@@ -198,11 +242,7 @@ def _parse_count_only_payload(payload: Any) -> ParsedAggregate | None:
         return None
 
     filters: list[str] = []
-    for clause in agg_filter.split(","):
-        clause = clause.strip()
-        if not clause or ":" not in clause:
-            return None
-        field, raw_value = (part.strip() for part in clause.split(":", 1))
+    for field, raw_value in clauses:
         if _AGG_RE.match(raw_value):
             return None
         filters.append(f"{field}:{raw_value}")
@@ -220,46 +260,58 @@ def _parse_count_only_payload(payload: Any) -> ParsedAggregate | None:
     )
 
 
-def _weighted_averages(aggregates: list[ParsedAggregate]) -> list[dict[str, Any]]:
-    by_branch: dict[tuple[str, str, str, tuple[str, ...]], dict[str, float]] = {}
+def _averages(aggregates: list[ParsedAggregate]) -> list[dict[str, Any]]:
+    """Exact sum ÷ count per branch, for every field that has both."""
+    counts: dict[tuple[str, str, tuple[str, ...]], float] = {}
+    sums: dict[tuple[str, str, tuple[str, ...]], dict[str, float]] = {}
     for aggregate in aggregates:
-        if aggregate.op not in {"count", "avg"}:
-            continue
-        key = (
-            aggregate.dataset,
-            aggregate.schema,
-            aggregate.field,
-            aggregate.filters,
-        )
-        by_branch.setdefault(key, {})[aggregate.op] = aggregate.value
+        branch = (aggregate.dataset, aggregate.schema, aggregate.filters)
+        if aggregate.op == "count":
+            counts[branch] = aggregate.value
+        elif aggregate.op == "sum":
+            sums.setdefault(branch, {})[aggregate.field] = aggregate.value
 
-    by_metric: dict[
-        tuple[str, str, str], list[tuple[tuple[str, ...], dict[str, float]]]
-    ]
-    by_metric = {}
-    for (dataset, schema, field, filters), values in by_branch.items():
-        if {"count", "avg"} <= values.keys():
-            by_metric.setdefault((dataset, schema, field), []).append((filters, values))
+    rows: list[dict[str, Any]] = []
+    for branch in sorted(sums.keys() & counts.keys()):
+        dataset, schema, filters = branch
+        count = counts[branch]
+        if count <= 0:
+            continue
+        for field, total in sorted(sums[branch].items()):
+            rows.append(
+                {
+                    "dataset": dataset,
+                    "schema": schema,
+                    "field": field,
+                    "branch": _format_branch(filters),
+                    "sum": total,
+                    "count": count,
+                    "average": total / count,
+                }
+            )
+    return rows
+
+
+def _weighted_averages(averages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Pool two or more branches of the same field: Σsum ÷ Σcount."""
+    by_metric: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for row in averages:
+        key = (row["dataset"], row["schema"], row["field"])
+        by_metric.setdefault(key, []).append(row)
 
     summaries: list[dict[str, Any]] = []
     for (dataset, schema, field), branches in sorted(by_metric.items()):
         if len(branches) < 2:
             continue
-        branches = sorted(branches, key=lambda branch: branch[0])
-        total_count = sum(values["count"] for _, values in branches)
-        if total_count <= 0:
-            continue
-        weighted = (
-            sum(values["count"] * values["avg"] for _, values in branches) / total_count
-        )
+        total_count = sum(row["count"] for row in branches)
         summaries.append(
             {
                 "dataset": dataset,
                 "schema": schema,
                 "field": field,
-                "branches": [_format_branch(filters) for filters, _ in branches],
+                "branches": [row["branch"] for row in branches],
                 "total_count": total_count,
-                "weighted_average": weighted,
+                "weighted_average": sum(row["sum"] for row in branches) / total_count,
             }
         )
     return summaries

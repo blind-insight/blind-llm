@@ -7,7 +7,7 @@ from typing import Any
 from blindllm.prompts import JSON_ONLY_REMINDER
 from blindllm.providers._base import BaseProvider, extract_json, require_key
 
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
 
 
 def split_system_and_contents(messages: list[dict[str, str]]) -> tuple[str, str]:
