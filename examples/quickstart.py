@@ -31,6 +31,8 @@ KEY_ENV = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "gemini": "GOOGLE_API_KEY",
+    # Also needs AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT.
+    "azure": "AZURE_OPENAI_API_KEY",
 }
 
 

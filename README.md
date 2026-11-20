@@ -19,7 +19,7 @@ What stays out of this package: running the tools, the orchestration loop, crede
 ## Install
 
 ```bash
-pip install -e ".[anthropic]"     # or [openai], [gemini], [all]  (PyPI release to follow)
+pip install -e ".[anthropic]"     # or [openai] (also for Azure), [gemini], [all]  (PyPI release to follow)
 ```
 
 ## Quickstart
@@ -82,12 +82,12 @@ Every reply is one JSON object matching `OPENAI_STRUCTURED_OUTPUT_SCHEMA`:
 
 `filters` is a list of clauses joined by AND. Each clause has an `op`:
 
-| `op`                                  | Meaning                                              | Fields                       |
-| ------------------------------------- | ---------------------------------------------------- | ---------------------------- |
-| `eq`                                  | Whole-value equality, exact and case-sensitive       | plain strings, integers      |
-| `phrase`                              | The text contains these words, consecutively, in order | strings marked `text: true`  |
-| `range`                               | Inclusive integer range, `lo~hi`                     | integers                     |
-| `count` / `avg` / `sum` / `min` / `max` | The query's one aggregate, over `lo~hi` or `>40`     | integers                     |
+| `op`                                    | Meaning                                                | Fields                      |
+| --------------------------------------- | ------------------------------------------------------ | --------------------------- |
+| `eq`                                    | Whole-value equality, exact and case-sensitive         | plain strings, integers     |
+| `phrase`                                | The text contains these words, consecutively, in order | strings marked `text: true` |
+| `range`                                 | Inclusive integer range, `lo~hi`                       | integers                    |
+| `count` / `avg` / `sum` / `min` / `max` | The query's one aggregate, over `lo~hi` or `>40`       | integers                    |
 
 The system prompt teaches the model to normalize everyday language ("between 2022 and 2024", "Germany", "the ER", "of those") into these clauses. See `SYSTEM_PROMPT` in [`prompts.py`](src/blindllm/prompts.py).
 
@@ -121,17 +121,38 @@ To run a query, pass `filters_to_wire(parse_filters(...))` to the proxy's `/api/
 
 ## Providers
 
-All three adapters implement the same `ChatClientProtocol` and share one canonical message list (system → date → catalog → hints → user). Only the SDK boundary differs:
+All adapters implement the same `ChatClientProtocol` and share one canonical message list (system → date → catalog → hints → user). Only the SDK boundary differs:
 
-| Provider  | Structured output                                   | Default model       |
-| --------- | --------------------------------------------------- | ------------------- |
-| OpenAI    | strict `json_schema` response format                | `gpt-4.1-mini`      |
-| Anthropic | system prompt split out, JSON by instruction        | `claude-sonnet-4-6` |
-| Gemini    | `system_instruction` + `application/json` MIME type | `gemini-3.1-flash-lite`  |
+| Provider     | Structured output                                   | Default model           |
+| ------------ | --------------------------------------------------- | ----------------------- |
+| OpenAI       | strict `json_schema` response format                | `gpt-4.1-mini`          |
+| Azure OpenAI | strict `json_schema`, or a weaker mode (see below)  | your deployment         |
+| Anthropic    | system prompt split out, JSON by instruction        | `claude-sonnet-4-6`     |
+| Gemini       | `system_instruction` + `application/json` MIME type | `gemini-3.1-flash-lite` |
 
 Defaults match what the Blind Insight service runs today. Pass `model=` to use something newer. Check that the default is still served before relying on it.
 
-Every adapter takes `timeout_ms=` and an optional `invoke=` callable that wraps the SDK call (add retries, tracing, or your own error handling). Provider failures come back as `ProviderCallError` with a stable `type`: `provider_auth`, `provider_rate_limit`, `provider_quota`, `provider_timeout`, and so on.
+### Azure OpenAI
+
+For organisations whose models run in Microsoft Azure (Azure OpenAI, or Azure AI Foundry's OpenAI endpoint), `--provider azure` (aliases `azure-openai`, `microsoft`) runs against the customer's own deployment. It uses the `openai` SDK, so install `[openai]`:
+
+```python
+client = build_provider(
+    "azure",
+    api_key="...",
+    model="gpt-4o-prod",  # the deployment name, not a model id
+    endpoint="https://contoso.openai.azure.com",
+    catalog=catalog,
+)
+```
+
+By default it calls Azure's [v1 API](https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle) (`<endpoint>/openai/v1/`), which Microsoft recommends and which needs no dated `api-version`. For a resource or gateway that still requires the older dated API, pass `api_version=` (for example `"2024-10-21"`).
+
+Each setting falls back to an environment variable: `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_DEPLOYMENT`. Authentication is by API key only: the key is always passed explicitly, so an Entra ID token or another key in the environment is never used.
+
+Not every deployment or API version enforces a JSON schema. For those, pass `structured_output="json_object"` (JSON mode) or `"prompt"` (JSON by instruction). Azure's content filter can block clinical wording; a blocked prompt or reply comes back as `ProviderCallError` type `provider_safety`.
+
+Every adapter takes `timeout_ms=` and an optional `invoke=` callable that wraps the SDK call (add retries, tracing, or your own error handling). Provider failures come back as `ProviderCallError` with a stable `type`: `provider_auth`, `provider_rate_limit`, `provider_quota`, `provider_timeout`, `provider_unavailable` (5xx), `provider_safety`, and so on.
 
 ## Guardrails
 

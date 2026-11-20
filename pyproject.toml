@@ -1,13 +1,13 @@
 [project]
 name = "blindllm"
 version = "0.1.0"
-description = "Open-source model instructions for asking questions of encrypted data: system prompt, tool contract, and OpenAI / Anthropic / Gemini adapters."
+description = "Open-source model instructions for asking questions of encrypted data: system prompt, tool contract, and OpenAI / Azure OpenAI / Anthropic / Gemini adapters."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "Blind Insight", email = "hello@blindinsight.com" }]
-keywords = ["llm", "encryption", "privacy", "ai-agents", "openai", "anthropic", "gemini"]
+keywords = ["llm", "encryption", "privacy", "ai-agents", "openai", "anthropic", "gemini", "azure"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",

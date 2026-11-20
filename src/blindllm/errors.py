@@ -27,6 +27,14 @@ class ProviderCallError(RuntimeError):
         return {"provider": self.provider, **self.to_dict()}
 
     @classmethod
+    def of_type(cls, provider: str, err_type: str) -> ProviderCallError:
+        """An error of a known ``type`` with its standard user-facing message."""
+        return cls(
+            provider,
+            ProviderErrorInfo(type=err_type, message=_user_message(provider, err_type)),
+        )
+
+    @classmethod
     def from_timeout(cls, provider: str) -> ProviderCallError:
         label = provider.title()
         return cls(
@@ -53,6 +61,9 @@ def _user_message(provider: str, err_type: str) -> str:
         "provider_payload": (f"{label} could not process the request payload."),
         "provider_model": (f"{label} does not recognize the configured model."),
         "provider_safety": (f"{label} blocked the request for safety reasons."),
+        "provider_unavailable": (
+            f"{label} is temporarily unavailable. Please try again in a moment."
+        ),
         "unknown_provider_error": (
             f"{label} returned an unexpected error. Please try again."
         ),
@@ -78,10 +89,19 @@ def classify_provider_exception(provider: str, exc: Exception) -> ProviderCallEr
         err_type = "provider_quota"
     elif status == 404 or ("not found" in text and "model" in text):
         err_type = "provider_model"
-    elif "safety" in name or "blocked" in text or "content policy" in text:
+    elif (
+        "safety" in name
+        or "blocked" in text
+        or "content policy" in text
+        # Azure OpenAI's content filter: HTTP 400 with code "content_filter".
+        or getattr(exc, "code", None) == "content_filter"
+        or "content management policy" in text
+    ):
         err_type = "provider_safety"
     elif status in {400, 422} or "invalid" in name or "badrequest" in name:
         err_type = "provider_payload"
+    elif isinstance(status, int) and status >= 500:
+        err_type = "provider_unavailable"
 
     return ProviderCallError(
         provider,

@@ -10,11 +10,13 @@ from blindllm.providers._base import ProviderKeyMissing
 PROVIDER_OPENAI = "openai"
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_GEMINI = "gemini"
+PROVIDER_AZURE = "azure"
 
 SUPPORTED_PROVIDERS: tuple[str, ...] = (
     PROVIDER_OPENAI,
     PROVIDER_ANTHROPIC,
     PROVIDER_GEMINI,
+    PROVIDER_AZURE,
 )
 
 # Accepted spellings → provider id.
@@ -24,6 +26,10 @@ PROVIDER_ALIASES: dict[str, str] = {
     PROVIDER_GEMINI: PROVIDER_GEMINI,
     "google": PROVIDER_GEMINI,
     "claude": PROVIDER_ANTHROPIC,
+    PROVIDER_AZURE: PROVIDER_AZURE,
+    "azure-openai": PROVIDER_AZURE,
+    "azure_openai": PROVIDER_AZURE,
+    "microsoft": PROVIDER_AZURE,
 }
 
 
@@ -52,7 +58,12 @@ def build_provider(
     hints: list[str] | None = None,
     **kwargs: Any,
 ) -> ChatClientProtocol:
-    """Construct a provider adapter. ``kwargs`` pass through (timeout_ms, invoke, max_tokens)."""
+    """Construct a provider adapter. ``kwargs`` pass through (timeout_ms, invoke, max_tokens).
+
+    For Azure, ``model`` is the deployment name, ``api_key`` may be empty to
+    read ``AZURE_OPENAI_API_KEY``, and ``endpoint=`` (and optionally
+    ``api_version=`` for Azure's older dated API) pass through as kwargs.
+    """
     provider = normalize_provider(name)
     common: dict[str, Any] = {"catalog": catalog, "hints": hints, **kwargs}
     if model:
@@ -61,6 +72,10 @@ def build_provider(
         from blindllm.providers.anthropic import AnthropicProvider
 
         return AnthropicProvider(api_key, **common)
+    if provider == PROVIDER_AZURE:
+        from blindllm.providers.azure import AzureOpenAIProvider
+
+        return AzureOpenAIProvider(api_key, **common)
     if provider == PROVIDER_GEMINI:
         from blindllm.providers.gemini import GeminiProvider
 
